@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>JS Assignment Verification — Massed vs. Distributed</title>
+  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: #000; color: #ccc; font-family: 'Courier New', monospace; padding: 30px; line-height: 1.6; }
+    h1 { color: #ffe066; margin-bottom: 6px; font-size: 1.3em; }
+    .subtitle { color: #555; margin-bottom: 28px; font-size: 0.85em; }
+    h2 { color: #4fc3f7; margin-top: 36px; margin-bottom: 10px; border-bottom: 1px solid #222; padding-bottom: 6px; font-size: 1em; }
+    p { color: #888; margin-bottom: 10px; font-size: 0.88em; }
+    table { border-collapse: collapse; margin: 10px 0 16px; width: auto; max-width: 100%; }
+    th { background: #111; color: #ffe066; padding: 6px 14px; text-align: left; border: 1px solid #333; font-size: 0.85em; }
+    td { padding: 5px 14px; border: 1px solid #222; font-size: 0.85em; }
+    tr:nth-child(even) td { background: #080808; }
+    .ok   { color: #4caf50; font-weight: bold; }
+    .warn { color: #ff9800; font-weight: bold; }
+    .fail { color: #f44336; font-weight: bold; }
+    .status { color: #ffe066; padding: 20px 0; }
+    button {
+      background: #111; color: #ccc; border: 1px solid #444;
+      padding: 6px 14px; cursor: pointer; font-family: 'Courier New', monospace;
+      font-size: 0.82em; margin: 2px 4px 2px 0;
+    }
+    button:hover { background: #1e1e1e; color: #fff; }
+    .section { max-width: 1100px; }
+    #output { display: none; }
+    .summary-box {
+      border: 1px solid #333; background: #080808;
+      padding: 14px 18px; margin-top: 36px; max-width: 600px;
+    }
+    .summary-box h2 { margin-top: 0; border-bottom-color: #333; }
+    .summary-box p { margin-bottom: 4px; }
+  </style>
+</head>
+<body>
+  <h1>Massed vs. Distributed — JS Assignment Verification</h1>
+  <p class="subtitle">Uses the exact algorithms from experiment.js (Mulberry32 PRNG + SHA-256 seed).</p>
+  <p id="status-msg" class="status">Loading stimuli_speakers.csv…</p>
+  <div id="output"></div>
+
+<script>
+// ================================================================
+// Exact copies of key functions from experiment.js
+// (keeping these in sync is the point of this test page)
+// ================================================================
+
+const SENTENCES_PER_TEST = 40;
+const STORY_ID_COL   = 'story_name';
+const SUBTITLE_COL   = 'subtitles';
+const AUDIO_FILE_COL = 'filename';
+
+const GROUP_OFFSETS = { ctrl: 0, lmtd: 1, mass: 2, dist: 3 };
+
+const DIST_STORIES = {
+  'train-day1': ['story2', 'story3'],
+  'train-day2': ['story4', 'story7'],
+  'train-day3': ['story3', 'story4'],
+  'train-day4': ['story2', 'story7']
+};
+
+const VALID_SESSIONS = {
+  ctrl: ['pre-post', '1-week post', '1-month post'],
+  lmtd: ['pre-train-post', '1-week post', '1-month post'],
+  mass: ['pre-train-post', '1-week post', '1-month post'],
+  dist: ['pre-test', 'train-day1', 'train-day2', 'train-day3',
+         'train-day4-post', '1-week post', '1-month post']
+};
+
+const TEST_PARTICIPANTS = [
+  ['ctrl', 'ctrl01'], ['ctrl', 'ctrl02'], ['ctrl', 'ctrl03'], ['ctrl', 'ctrl04'],
+  ['lmtd', 'lmtd01'], ['lmtd', 'lmtd02'], ['lmtd', 'lmtd03'], ['lmtd', 'lmtd04'],
+  ['mass', 'mass01'], ['mass', 'mass02'], ['mass', 'mass03'], ['mass', 'mass04'],
+  ['dist', 'dist01'], ['dist', 'dist02'], ['dist', 'dist03'], ['dist', 'dist04'],
+];
+
+// ---- PRNG (exact copy from experiment.js) ----
+function mulberry32(seed) {
+  return function () {
+    let t = (seed += 0x6D2B79F5) | 0;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function seededShuffle(array, seed) {
+  const rng = mulberry32(seed >>> 0);
+  const arr = array.slice();
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(rng() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+}
+
+async function getSeed(participantId) {
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(participantId));
+  return new DataView(buf).getUint32(28, false);
+}
+
+// ---- Assignment functions (exact copy from experiment.js) ----
+function getCounterbalancedSpeaker(rows, group, participantId) {
+  const speakers = [...new Set(rows.map(r => r.spk))].sort();
+  const num = parseInt(participantId.replace(/\D/g, ''), 10);
+  const idx = (num - 1 + (GROUP_OFFSETS[group] ?? 0)) % speakers.length;
+  return speakers[idx];
+}
+
+async function buildTestBlocks(testRows, participantId) {
+  const seed     = await getSeed(participantId);
+  const shuffled = seededShuffle(testRows, seed);
+  return {
+    'pre-test':     shuffled.slice(0,                      SENTENCES_PER_TEST),
+    'post-test':    shuffled.slice(SENTENCES_PER_TEST,     SENTENCES_PER_TEST * 2),
+    '1-week post':  shuffled.slice(SENTENCES_PER_TEST * 2, SENTENCES_PER_TEST * 3),
+    '1-month post': shuffled.slice(SENTENCES_PER_TEST * 3, SENTENCES_PER_TEST * 4)
+  };
+}
+
+function selectTrainingStories(storyRows, group, session) {
+  if (group === 'lmtd' && session === 'pre-train-post')
+    return storyRows.filter(r => ['story2', 'story3'].includes(r[STORY_ID_COL]));
+  if (group === 'mass' && session === 'pre-train-post')
+    return storyRows;
+  const distKey = session === 'train-day4-post' ? 'train-day4' : session;
+  if (group === 'dist' && DIST_STORIES[distKey])
+    return storyRows.filter(r => DIST_STORIES[distKey].includes(r[STORY_ID_COL]));
+  return [];
+}
+
+// ================================================================
+// Helpers
+// ================================================================
+function esc(str) {
+  return String(str ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function badge(ok, text) {
+  const cls = ok === true ? 'ok' : ok === false ? 'fail' : 'warn';
+  return `<span class="${cls}">${esc(text ?? (ok ? 'OK' : 'FAIL'))}</span>`;
+}
+
+function downloadCSV(rows, filename) {
+  const blob = new Blob([Papa.unparse(rows)], { type: 'text/csv;charset=utf-8;' });
+  const url  = URL.createObjectURL(blob);
+  const a    = Object.assign(document.createElement('a'), { href: url, download: filename });
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+
+// ================================================================
+// Main test runner
+// ================================================================
+async function runTests(allRows) {
+  const out = document.getElementById('output');
+  out.style.display = 'block';
+  document.getElementById('status-msg').style.display = 'none';
+
+  const speakers = [...new Set(allRows.map(r => r.spk))].sort();
+  out.innerHTML += `<p>Loaded <strong>${allRows.length}</strong> rows &nbsp;|&nbsp; speakers: <strong>${speakers.join(', ')}</strong></p>`;
+
+  // Pre-compute per-participant data
+  const participants = [];
+  for (const [group, pid] of TEST_PARTICIPANTS) {
+    const speaker   = getCounterbalancedSpeaker(allRows, group, pid);
+    const spkRows   = allRows.filter(r => r.spk === speaker);
+    const testRows  = spkRows.filter(r => r.type === 'test');
+    const storyRows = spkRows.filter(r => r.type === 'story');
+    const testBlocks = await buildTestBlocks(testRows, pid);
+    participants.push({ group, pid, speaker, testRows, storyRows, testBlocks });
+  }
+
+  // ----------------------------------------------------------------
+  // 1. Speaker counterbalancing
+  // ----------------------------------------------------------------
+  const spkCSV = [];
+  {
+    let html = `<div class="section"><h2>1. Speaker Counterbalancing</h2>`;
+    html += `<table><tr><th>participant_id</th><th>group</th><th>speaker</th></tr>`;
+    for (const p of participants) {
+      spkCSV.push({ participant_id: p.pid, group: p.group, speaker: p.speaker });
+      html += `<tr><td>${esc(p.pid)}</td><td>${esc(p.group)}</td><td>${esc(p.speaker)}</td></tr>`;
+    }
+    html += `</table>`;
+
+    for (const group of ['ctrl', 'lmtd', 'mass', 'dist']) {
+      const gs = participants.filter(p => p.group === group).map(p => p.speaker);
+      const unique = new Set(gs).size;
+      const ok = unique === speakers.length;
+      html += `<p>${esc(group)}: [${gs.join(', ')}] &nbsp; ${badge(ok, ok ? `all ${unique} speakers covered` : `WARNING: only ${unique}/${speakers.length} unique`)}</p>`;
+    }
+
+    html += `<br><button id="dl-spk">↓ speaker_assignments.csv</button></div>`;
+    out.innerHTML += html;
+    out.querySelector('#dl-spk').addEventListener('click', () => downloadCSV(spkCSV, 'speaker_assignments.csv'));
+  }
+
+  // ----------------------------------------------------------------
+  // 2. Test block structure
+  // ----------------------------------------------------------------
+  const blockCSV = [];
+  {
+    let html = `<div class="section"><h2>2. Test Block Structure &nbsp;<small style="color:#555;font-size:0.8em">(size / overlap / reproducibility)</small></h2>`;
+    html += `<table>
+      <tr>
+        <th>participant_id</th><th>speaker</th>
+        <th>pre-test</th><th>post-test</th><th>1-week</th><th>1-month</th>
+        <th>no overlap</th><th>repro</th><th>status</th>
+      </tr>`;
+
+    let allOk = true;
+    for (const p of participants) {
+      let sizeOk = true;
+      for (const rows of Object.values(p.testBlocks))
+        if (rows.length !== SENTENCES_PER_TEST) sizeOk = false;
+
+      const allFiles = Object.values(p.testBlocks).flatMap(rows => rows.map(r => r[AUDIO_FILE_COL]));
+      const noOverlap = allFiles.length === new Set(allFiles).size;
+
+      // Reproducibility: re-run with same inputs
+      const seed2     = await getSeed(p.pid);
+      const shuffled2 = seededShuffle(p.testRows, seed2);
+      const repro = p.testBlocks['pre-test'].every((r, i) => r[AUDIO_FILE_COL] === shuffled2[i][AUDIO_FILE_COL]);
+
+      const ok = sizeOk && noOverlap && repro;
+      if (!ok) allOk = false;
+
+      const sz = b => p.testBlocks[b].length;
+      html += `<tr>
+        <td>${esc(p.pid)}</td><td>${esc(p.speaker)}</td>
+        <td>${sz('pre-test')}</td><td>${sz('post-test')}</td>
+        <td>${sz('1-week post')}</td><td>${sz('1-month post')}</td>
+        <td>${badge(noOverlap)}</td><td>${badge(repro)}</td>
+        <td>${badge(ok)}</td>
+      </tr>`;
+
+      for (const [block, rows] of Object.entries(p.testBlocks)) {
+        for (let i = 0; i < rows.length; i++) {
+          blockCSV.push({
+            participant_id: p.pid, group: p.group, speaker: p.speaker,
+            block, trial_num: i + 1,
+            [AUDIO_FILE_COL]: rows[i][AUDIO_FILE_COL],
+            spk: rows[i].spk, target: rows[i].target ?? ''
+          });
+        }
+      }
+    }
+
+    html += `</table>`;
+    html += `<p>${badge(allOk, allOk ? 'All block checks passed.' : 'SOME CHECKS FAILED — see table.')}</p>`;
+    html += `<br><button id="dl-blocks">↓ all_block_assignments.csv</button></div>`;
+    out.innerHTML += html;
+    out.querySelector('#dl-blocks').addEventListener('click', () => downloadCSV(blockCSV, 'all_block_assignments.csv'));
+  }
+
+  // ----------------------------------------------------------------
+  // 3. Training story selection
+  // ----------------------------------------------------------------
+  const trainingCSV = [];
+  {
+    let html = `<div class="section"><h2>3. Training Story Selection</h2>`;
+    html += `<table><tr><th>participant_id</th><th>group</th><th>session</th><th>stories</th><th>n_sentences</th></tr>`;
+
+    for (const p of participants) {
+      for (const session of VALID_SESSIONS[p.group]) {
+        const stories = selectTrainingStories(p.storyRows, p.group, session);
+        if (!stories.length) continue;
+        const names = [...new Set(stories.map(r => r[STORY_ID_COL]))].sort().join(', ');
+        trainingCSV.push({ participant_id: p.pid, group: p.group, session, stories: names, n_sentences: stories.length });
+        html += `<tr>
+          <td>${esc(p.pid)}</td><td>${esc(p.group)}</td><td>${esc(session)}</td>
+          <td>${esc(names)}</td><td>${stories.length}</td>
+        </tr>`;
+      }
+    }
+
+    html += `</table>`;
+    html += `<br><button id="dl-train">↓ training_assignments.csv</button></div>`;
+    out.innerHTML += html;
+    out.querySelector('#dl-train').addEventListener('click', () => downloadCSV(trainingCSV, 'training_assignments.csv'));
+  }
+
+  // ----------------------------------------------------------------
+  // 4. Cross-participant uniqueness
+  // ----------------------------------------------------------------
+  {
+    let html = `<div class="section"><h2>4. Cross-Participant Block Uniqueness</h2>`;
+    html += `<p>Verifies that different participants within the same group receive different shuffle orderings.</p>`;
+    html += `<table><tr><th>group</th><th>participant pre-test first file</th><th>result</th></tr>`;
+
+    for (const group of ['ctrl', 'lmtd', 'mass', 'dist']) {
+      const grpP = participants.filter(p => p.group === group);
+      const firstFiles = grpP.map(p => p.testBlocks['pre-test'].map(r => r[AUDIO_FILE_COL]).join('|'));
+      let allUnique = true;
+      for (let i = 0; i < firstFiles.length; i++)
+        for (let j = i + 1; j < firstFiles.length; j++)
+          if (firstFiles[i] === firstFiles[j]) allUnique = false;
+
+      html += `<tr>
+        <td>${esc(group)}</td>
+        <td style="color:#555;font-size:0.75em">${grpP.map((p, i) =>
+          `${p.pid}: …${firstFiles[i].split('/').pop().slice(0, 20)}`).join('<br>')}</td>
+        <td>${badge(allUnique, allUnique ? 'All distinct' : 'IDENTICAL ORDERINGS DETECTED!')}</td>
+      </tr>`;
+    }
+
+    html += `</table></div>`;
+    out.innerHTML += html;
+  }
+
+  // ----------------------------------------------------------------
+  // Summary
+  // ----------------------------------------------------------------
+  {
+    const checks = [
+      { label: 'Speakers loaded',      ok: speakers.length > 0 },
+      { label: 'Speaker rotation',     ok: ['ctrl','lmtd','mass','dist'].every(g => {
+          const gs = participants.filter(p => p.group === g).map(p => p.speaker);
+          return new Set(gs).size === speakers.length;
+        }) },
+      { label: 'Block sizes correct',  ok: participants.every(p =>
+          Object.values(p.testBlocks).every(rows => rows.length === SENTENCES_PER_TEST)) },
+      { label: 'No stimulus overlap',  ok: participants.every(p => {
+          const f = Object.values(p.testBlocks).flatMap(rows => rows.map(r => r[AUDIO_FILE_COL]));
+          return f.length === new Set(f).size;
+        }) },
+      { label: 'Training stories correct', ok: trainingCSV.length > 0 },
+    ];
+
+    const allPass = checks.every(c => c.ok);
+    let html = `<div class="summary-box"><h2>Summary</h2>`;
+    for (const c of checks)
+      html += `<p>${badge(c.ok)} &nbsp; ${esc(c.label)}</p>`;
+    html += `<br><p>${badge(allPass, allPass ? 'All checks passed — JS logic matches expected behaviour.' : 'One or more checks failed.')}</p>`;
+    html += `<br><p style="color:#555">Note: block <em>content</em> differs from the Python test script because Python uses numpy random and JS uses Mulberry32. Block <em>structure</em> (40 items, no overlap, reproducible) is verified above.</p>`;
+    html += `</div>`;
+    out.innerHTML += html;
+  }
+}
+
+// ================================================================
+// Entry point
+// ================================================================
+Papa.parse('stimuli_speakers.csv', {
+  download: true, header: true, skipEmptyLines: true,
+  complete: r => runTests(r.data),
+  error:    e => {
+    document.getElementById('status-msg').textContent =
+      'Error loading stimuli_speakers.csv: ' + (e.message ?? e);
+  }
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,26 @@
+# Python environment
+.venv/
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+test_output
+uv.lock
+test_assignments.py
+.python-version
+pyproject.toml
+
+# Test / local output
+test_output/
+data/
+
+# macOS
+.DS_Store
+
+# other
+run.sh
+
+# no audio files
+audio/
