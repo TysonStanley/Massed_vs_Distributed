@@ -229,19 +229,38 @@ function msgTrial(text) {
 // ----------------------------------------------------------------
 // Test block
 // ----------------------------------------------------------------
-function buildTestBlock(participantId, session, label, trials) {
-  const results  = [];
-  const timeline = [];
+function buildTestBlock(participantId, session, label, allTrials) {
+  const storageKey = `${participantId}_${label}_partial`;
+  const timeline   = [];
 
-  timeline.push(msgTrial(
-    'You are going to hear short sentences spoken by someone with a motor speech disorder.\n\n' +
-    'The sentences contain real English words but will not make sense.\n' +
-    'Listen carefully — you will hear each sentence only once.\n\n' +
-    "After each sentence, type what you heard. Make your best guess. Use 'X' if you have no idea."
-  ));
+  // Recover any partial results saved by a previous interrupted session.
+  let results = [];
+  try {
+    const saved = JSON.parse(localStorage.getItem(storageKey) ?? 'null');
+    if (Array.isArray(saved) && saved.length > 0 && saved.length < allTrials.length)
+      results = saved;
+  } catch { }
 
-  for (let i = 0; i < trials.length; i++) {
-    const t = trials[i];
+  const completedCount = results.length;
+  const remaining      = allTrials.slice(completedCount);
+
+  if (completedCount > 0) {
+    timeline.push(msgTrial(
+      `Resuming from trial ${completedCount + 1} of ${allTrials.length}.\n\n` +
+      `${completedCount} trials were already recorded and will be included in your results.`
+    ));
+  } else {
+    timeline.push(msgTrial(
+      'You are going to hear short sentences spoken by someone with a motor speech disorder.\n\n' +
+      'The sentences contain real English words but will not make sense.\n' +
+      'Listen carefully — you will hear each sentence only once.\n\n' +
+      "After each sentence, type what you heard. Make your best guess. Use 'X' if you have no idea."
+    ));
+  }
+
+  for (let i = 0; i < remaining.length; i++) {
+    const t        = remaining[i];
+    const trialNum = completedCount + i + 1;
 
     // Audio + fixation (auto-advance when audio ends)
     timeline.push({
@@ -252,27 +271,28 @@ function buildTestBlock(participantId, session, label, trials) {
       response_allowed_while_playing: false,
       prompt:   '<div class="fixation">+</div>',
       on_start: () => console.log(
-        `[test | ${label}] trial ${i + 1}/${trials.length}  ` +
+        `[test | ${label}] trial ${trialNum}/${allTrials.length}  ` +
         `${t[AUDIO_FILE_COL]}  →  "${t.target ?? ''}"`
       )
     });
 
-    // Typed response
+    // Typed response — save to localStorage after every trial
     timeline.push({
       type:   TextInputPlugin,
       prompt: 'Please type what you heard below.',
       on_finish(data) {
         results.push({
-          participant_id: participantId,
+          participant_id:   participantId,
           session,
-          test_label:     label,
-          trial_num:      i + 1,
+          test_label:       label,
+          trial_num:        trialNum,
           [AUDIO_FILE_COL]: t[AUDIO_FILE_COL],
-          spk:            t.spk,
-          target:         t.target ?? '',
-          response:       sanitizeCsvCell(data.response ?? ''),
-          timestamp:      new Date().toISOString()
+          spk:              t.spk,
+          target:           t.target ?? '',
+          response:         sanitizeCsvCell(data.response ?? ''),
+          timestamp:        new Date().toISOString()
         });
+        try { localStorage.setItem(storageKey, JSON.stringify(results)); } catch { }
       }
     });
   }
@@ -286,8 +306,7 @@ function buildTestBlock(participantId, session, label, trials) {
     on_start() {
       console.log(`[save] downloading ${participantId}_${label}_results.csv (${results.length} rows)`);
       downloadCSV(results, `${participantId}_${label}_results.csv`);
-      backupToStorage(`${participantId}_test_results`, results);
-      try { localStorage.removeItem(`${participantId}_test_results`); } catch { }
+      try { localStorage.removeItem(storageKey); } catch { }
     }
   });
 
@@ -608,6 +627,13 @@ function showSetupScreen(onComplete) {
       </div>
 
       <p id="loading-msg" class="setup-loading" style="display:none;">Loading stimuli, please wait…</p>
+
+      <p style="margin-top:32px;border-top:1px solid #222;padding-top:14px;">
+        <button id="btn-clear-storage" style="background:none;border:none;color:#444;font-size:0.75em;cursor:pointer;padding:0;font-family:'Courier New',monospace;">
+          clear saved progress
+        </button>
+        <span id="clear-confirm" style="color:#4caf50;font-size:0.75em;margin-left:8px;display:none;">cleared</span>
+      </p>
     </div>`;
 
   const pidInput   = root.querySelector('#pid');
@@ -657,6 +683,15 @@ function showSetupScreen(onComplete) {
 
   pidInput.addEventListener('keydown', e => {
     if (e.key === 'Enter') root.querySelector('#btn-next').click();
+  });
+
+  root.querySelector('#btn-clear-storage').addEventListener('click', () => {
+    const keys = Object.keys(localStorage).filter(k => k.endsWith('_partial'));
+    keys.forEach(k => localStorage.removeItem(k));
+    const confirm = root.querySelector('#clear-confirm');
+    confirm.textContent = keys.length ? `cleared (${keys.length} saved session${keys.length > 1 ? 's' : ''})` : 'nothing to clear';
+    confirm.style.display = 'inline';
+    setTimeout(() => { confirm.style.display = 'none'; }, 3000);
   });
 }
 
