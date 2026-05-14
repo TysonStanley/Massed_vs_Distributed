@@ -206,6 +206,13 @@ function esc(str) {
     .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
+// Prevent spreadsheet formula injection in downloaded CSVs.
+// Prefixes cells starting with =, +, -, @, tab, or CR with a single quote.
+function sanitizeCsvCell(value) {
+  const s = String(value ?? '');
+  return /^[=+\-@\t\r]/.test(s) ? `'${s}` : s;
+}
+
 // Instruction screen — press SPACE to advance
 function msgTrial(text) {
   return {
@@ -263,7 +270,7 @@ function buildTestBlock(participantId, session, label, trials) {
           [AUDIO_FILE_COL]: t[AUDIO_FILE_COL],
           spk:            t.spk,
           target:         t.target ?? '',
-          response:       data.response ?? '',
+          response:       sanitizeCsvCell(data.response ?? ''),
           timestamp:      new Date().toISOString()
         });
       }
@@ -280,6 +287,7 @@ function buildTestBlock(participantId, session, label, trials) {
       console.log(`[save] downloading ${participantId}_${label}_results.csv (${results.length} rows)`);
       downloadCSV(results, `${participantId}_${label}_results.csv`);
       backupToStorage(`${participantId}_test_results`, results);
+      try { localStorage.removeItem(`${participantId}_test_results`); } catch { }
     }
   });
 
@@ -426,7 +434,7 @@ function buildDemographics(participantId) {
   // Age — free text
   timeline.push({
     type: TextInputPlugin, prompt: 'What is your age?',
-    on_finish: d => { demo.age = d.response; }
+    on_finish: d => { demo.age = sanitizeCsvCell(d.response); }
   });
 
   const mcItems = [
@@ -457,7 +465,7 @@ function buildDemographics(participantId) {
     timeline: [{
       type:      TextInputPlugin,
       prompt:    'Please describe your speech language impairment:',
-      on_finish: d => { demo.speech_impairment_explanation = d.response; }
+      on_finish: d => { demo.speech_impairment_explanation = sanitizeCsvCell(d.response); }
     }],
     conditional_function: () => demo.speech_impairment === 'yes'
   });
@@ -498,7 +506,7 @@ function buildDemographics(participantId) {
       if (!demo.frequency_communication)       demo.frequency_communication       = 'N/A';
       console.log('[save] downloading demographics CSV');
       downloadCSV([demo], `${participantId}_demographics.csv`);
-      backupToStorage(`${participantId}_demographics`, [demo]);
+      // Demographics contain sensitive PII — not backed up to localStorage.
     }
   });
 
