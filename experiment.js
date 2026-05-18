@@ -8,6 +8,8 @@
 // Constants (mirror the Python script)
 // ----------------------------------------------------------------
 const appversion         = '2026.05.18'
+console.log('App version: ', appversion);
+
 const SENTENCES_PER_TEST = 40;
 const STIMULI_CSV        = 'stimuli_speakers.csv';
 const STORY_ID_COL       = 'story_name';
@@ -784,7 +786,6 @@ async function preloadAudioFiles(filenames, dirHandle, onProgress) {
 // ----------------------------------------------------------------
 showSetupScreen(async (participantId, group, session, dirHandle) => {
   const loadingMsg = document.querySelector('.setup-loading');
-  console.log('App version: ', appversion);
 
   // Load stimuli CSV
   let testBlocks, storyRows, speaker;
