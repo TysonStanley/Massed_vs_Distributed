@@ -458,15 +458,15 @@ function buildDemographics(participantId) {
 
   const mcItems = [
     { q: 'What is your gender?', key: 'gender',
-      opts: ['man', 'woman', 'genderqueer', 'non-binary', 'gender fluid', 'my gender is not listed'] },
+      opts: ['Man', 'Woman', 'Genderqueer', 'Non-binary', 'Gender fluid', 'My gender is not listed'] },
     { q: 'What is your ethnicity?', key: 'ethnicity',
-      opts: ['hispanic/latinx', 'not hispanic/latinx'] },
+      opts: ['Hispanic/Latinx', 'Not Hispanic/Latinx'] },
     { q: 'What is your race?', key: 'race',
-      opts: ['caucasian/white', 'african american/black', 'native american', 'Asian/Pacific Islander', 'none of the above'] },
+      opts: ['Caucasian/White', 'African American/Black', 'Native American', 'Asian/Pacific Islander', 'None of the above'] },
     { q: 'What is your native language?', key: 'native_language',
       opts: ['English', 'not English'] },
     { q: 'Do you currently have or have you ever had a speech language impairment?',
-      key: 'speech_impairment', opts: ['yes', 'no'] }
+      key: 'speech_impairment', opts: ['Yes', 'No'] }
   ];
 
   for (const item of mcItems) {
@@ -486,7 +486,7 @@ function buildDemographics(participantId) {
       prompt:    'Please describe your speech language impairment:',
       on_finish: d => { demo.speech_impairment_explanation = sanitizeCsvCell(d.response); }
     }],
-    conditional_function: () => demo.speech_impairment === 'yes'
+    conditional_function: () => demo.speech_impairment === 'Yes'
   });
 
   // Experience with speech disorders
@@ -506,9 +506,9 @@ function buildDemographics(participantId) {
       stimulus: `<div class="exp-container">
         <p class="exp-prompt">How frequently do you communicate with people with speech disorders?</p>
       </div>`,
-      choices:   ['never', 'once', 'yearly', 'monthly', 'weekly', 'daily'],
+      choices:   ['Never', 'Once', 'Yearly', 'Monthly', 'Weekly', 'Daily'],
       on_finish: d => {
-        demo.frequency_communication = ['never', 'once', 'yearly', 'monthly', 'weekly', 'daily'][d.response];
+        demo.frequency_communication = ['Never', 'Once', 'Yearly', 'Monthly', 'Weekly', 'Daily'][d.response];
       }
     }],
     conditional_function: () => demo.experience_with_speech_disorders === 'Yes'
@@ -521,8 +521,8 @@ function buildDemographics(participantId) {
     choices:        'NO_KEYS',
     trial_duration: 1500,
     on_start() {
-      if (!demo.speech_impairment_explanation) demo.speech_impairment_explanation = 'N/A';
-      if (!demo.frequency_communication)       demo.frequency_communication       = 'N/A';
+      if (!demo.speech_impairment_explanation) demo.speech_impairment_explanation = 'NA';
+      if (!demo.frequency_communication)       demo.frequency_communication       = 'NA';
       console.log('[save] downloading demographics CSV');
       downloadCSV([demo], `${participantId}_demographics.csv`);
       // Demographics contain sensitive PII — not backed up to localStorage.
