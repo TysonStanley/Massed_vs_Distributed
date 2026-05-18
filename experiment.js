@@ -599,6 +599,7 @@ function buildTimeline(participantId, group, session, testBlocks, storyRows) {
 // Setup screen (plain HTML, shown before jsPsych initialises)
 // ----------------------------------------------------------------
 function showSetupScreen(onComplete) {
+  console.log("App version: 2026.05.18")
   const root = document.getElementById('setup-screen');
   root.innerHTML = `
     <div class="setup-box">
