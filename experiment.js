@@ -269,7 +269,7 @@ function buildTestBlock(participantId, session, label, allTrials) {
       choices:  'NO_KEYS',
       trial_ends_after_audio:         true,
       response_allowed_while_playing: false,
-      prompt:   '<div class="fixation">+</div>',
+      prompt:   '<div class="exp-container"><p class="exp-prompt" aria-hidden="true" style="visibility:hidden">Please type what you heard below.</p><div class="fixation">+</div><p class="exp-hint" aria-hidden="true" style="visibility:hidden">Press ENTER to submit</p></div>',
       on_start: () => console.log(
         `[test | ${label}] trial ${trialNum}/${allTrials.length}  ` +
         `${t[AUDIO_FILE_COL]}  →  "${t.target ?? ''}"`
@@ -416,7 +416,7 @@ function buildTrainingStory(storyRows, storyName) {
       choices:  'NO_KEYS',
       trial_ends_after_audio:         true,
       response_allowed_while_playing: false,
-      prompt:   '<div class="fixation">+</div>',
+      prompt:   '<div class="exp-container"><p class="exp-prompt" aria-hidden="true" style="visibility:hidden">Please type what you heard below.</p><div class="fixation">+</div><p class="exp-hint" aria-hidden="true" style="visibility:hidden">Press ENTER to submit</p></div>',
       on_start: () => console.log(
         `[training | ${storyName} | pass2] sentence ${i + 1}/${rows.length}  ${row[AUDIO_FILE_COL]}`
       )
