@@ -7,6 +7,7 @@
 // ----------------------------------------------------------------
 // Constants (mirror the Python script)
 // ----------------------------------------------------------------
+const appversion         = '2026.05.18'
 const SENTENCES_PER_TEST = 40;
 const STIMULI_CSV        = 'stimuli_speakers.csv';
 const STORY_ID_COL       = 'story_name';
@@ -599,7 +600,6 @@ function buildTimeline(participantId, group, session, testBlocks, storyRows) {
 // Setup screen (plain HTML, shown before jsPsych initialises)
 // ----------------------------------------------------------------
 function showSetupScreen(onComplete) {
-  console.log("App version: 2026.05.18")
   const root = document.getElementById('setup-screen');
   root.innerHTML = `
     <div class="setup-box">
@@ -784,6 +784,7 @@ async function preloadAudioFiles(filenames, dirHandle, onProgress) {
 // ----------------------------------------------------------------
 showSetupScreen(async (participantId, group, session, dirHandle) => {
   const loadingMsg = document.querySelector('.setup-loading');
+  console.log('App version: ', appversion);
 
   // Load stimuli CSV
   let testBlocks, storyRows, speaker;
