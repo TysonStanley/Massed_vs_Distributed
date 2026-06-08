@@ -540,6 +540,9 @@ function buildDemographics(participantId) {
       console.log('[save] downloading demographics CSV');
       downloadCSV([demo], `${participantId}_demographics.csv`);
       // Demographics contain sensitive PII — not backed up to localStorage.
+      // Record only a non-PII "done" flag so an interrupted first session
+      // resumed later doesn't re-ask the demographic questions.
+      try { localStorage.setItem(`${participantId}_demographics_done`, '1'); } catch { }
     }
   });
 
@@ -555,7 +558,13 @@ function buildTimeline(participantId, group, session, testBlocks, storyRows) {
   const firstSessions = ['pre-post', 'pre-train-post', 'pre-test'];
   const trainingRows  = selectTrainingStories(storyRows, group, session);
 
-  if (firstSessions.includes(session))
+  // Demographics are collected once, in the participant's first session. If a
+  // first session was interrupted after demographics were saved and is being
+  // resumed, skip them so they aren't asked twice.
+  let demographicsDone = false;
+  try { demographicsDone = localStorage.getItem(`${participantId}_demographics_done`) === '1'; } catch { }
+
+  if (firstSessions.includes(session) && !demographicsDone)
     timeline.push(...buildDemographics(participantId));
 
   if (session === 'pre-post') {
@@ -700,10 +709,13 @@ function showSetupScreen(onComplete) {
   });
 
   root.querySelector('#btn-clear-storage').addEventListener('click', () => {
-    const keys = Object.keys(localStorage).filter(k => k.endsWith('_partial'));
-    keys.forEach(k => localStorage.removeItem(k));
+    // Partial test progress (the "saved sessions") plus the demographics-done
+    // flags, so a cleared participant starts completely fresh.
+    const partialKeys = Object.keys(localStorage).filter(k => k.endsWith('_partial'));
+    const demoKeys    = Object.keys(localStorage).filter(k => k.endsWith('_demographics_done'));
+    [...partialKeys, ...demoKeys].forEach(k => localStorage.removeItem(k));
     const confirm = root.querySelector('#clear-confirm');
-    confirm.textContent = keys.length ? `cleared (${keys.length} saved session${keys.length > 1 ? 's' : ''})` : 'nothing to clear';
+    confirm.textContent = partialKeys.length ? `cleared (${partialKeys.length} saved session${partialKeys.length > 1 ? 's' : ''})` : 'nothing to clear';
     confirm.style.display = 'inline';
     setTimeout(() => { confirm.style.display = 'none'; }, 3000);
   });
