@@ -24,16 +24,16 @@ const VALID_SESSIONS = {
          'train-day4-post', '1-week post', '1-month post']
 };
 
-// Story pairs per dist training day.
+// One story per dist training day; each is played through twice back-to-back.
 // 'train-day4-post' maps to 'train-day4' — see selectTrainingStories().
 // Note: the Python experiment has a bug where 'train-day4-post' is never
 // matched, so no stories load for that session. The JS version fixes this
 // by explicitly mapping 'train-day4-post' → 'train-day4'.
 const DIST_STORIES = {
-  'train-day1': ['story2', 'story3'],
-  'train-day2': ['story4', 'story7'],
-  'train-day3': ['story3', 'story4'],
-  'train-day4': ['story2', 'story7']
+  'train-day1': ['story2'],
+  'train-day2': ['story3'],
+  'train-day3': ['story4'],
+  'train-day4': ['story7']
 };
 
 const GROUP_OFFSETS = { ctrl: 0, lmtd: 1, mass: 2, dist: 3 };
@@ -125,19 +125,25 @@ async function loadStimuli(group, participantId) {
   return { testBlocks, storyRows, speaker };
 }
 
+// Returns the story rows for a session. Every training session now plays each
+// of its stories through twice back-to-back (see buildTrainingStory); the set
+// of stories differs by group/session:
+//   lmtd: story2 only
+//   mass: story2, story3, story4, story7
+//   dist: one story per day (DIST_STORIES)
 function selectTrainingStories(storyRows, group, session) {
   if (group === 'lmtd' && session === 'pre-train-post')
-    return { rows: storyRows.filter(r => ['story2', 'story3'].includes(r[STORY_ID_COL])), repeat: false };
+    return storyRows.filter(r => r[STORY_ID_COL] === 'story2');
 
   if (group === 'mass' && session === 'pre-train-post')
-    return { rows: storyRows, repeat: true };
+    return storyRows.filter(r => ['story2', 'story3', 'story4', 'story7'].includes(r[STORY_ID_COL]));
 
   // 'train-day4-post' maps to 'train-day4' for story lookup (fixes Python bug)
   const distKey = session === 'train-day4-post' ? 'train-day4' : session;
   if (group === 'dist' && DIST_STORIES[distKey])
-    return { rows: storyRows.filter(r => DIST_STORIES[distKey].includes(r[STORY_ID_COL])), repeat: false };
+    return storyRows.filter(r => DIST_STORIES[distKey].includes(r[STORY_ID_COL]));
 
-  return { rows: [], repeat: false };
+  return [];
 }
 
 
@@ -348,22 +354,32 @@ function getTrainingInstructions(group, session) {
     "the speech."
   );
 
+  // lmtd / mass: passage is played twice with subtitles, then the next passage.
   const taskStandard = (
     "Task Instructions\n\n" +
     "You will now hear the individual read a short passage twice. " +
-    "The first time you hear the passage, written subtitles of what the " +
-    "speaker is saying will be provided on the screen. Your task is to " +
-    "listen closely to the passage and use the written subtitles to help " +
-    "you understand what is being said. In the first pass through, you " +
-    "will not need to type a response, but you do need to listen very " +
-    "carefully. When you are finished listening, press SPACE to move to " +
-    "the next sentence. The second time the passage plays, you will not " +
-    "be provided subtitles. Instead, you will be asked to type what you " +
-    "heard. Do not worry about punctuation when typing your response. " +
-    "This process will repeat for the next passage."
+    "Both times you hear the passage, written subtitles of what the speaker " +
+    "is saying will be provided on the screen. Your task is to listen very " +
+    "closely to the passage and follow along with the written subtitles to " +
+    "help you understand what is being said. You need to listen very " +
+    "carefully. When you are finished listening, press SPACE to move to the " +
+    "next sentence. This process will repeat for the next passage."
   );
 
-  const taskReturnDay = taskStandard.replace(
+  // dist: only one passage per day, so the closing sentence about repeating
+  // for the next passage is omitted.
+  const taskDist = (
+    "Task Instructions\n\n" +
+    "You will now hear the individual read a short passage twice. " +
+    "Both times you hear the passage, written subtitles of what the speaker " +
+    "is saying will be provided on the screen. Your task is to listen very " +
+    "closely to the passage and follow along with the written subtitles to " +
+    "help you understand what is being said. You need to listen very " +
+    "carefully. When you are finished listening, press SPACE to move to the " +
+    "next sentence."
+  );
+
+  const taskDistReturnDay = taskDist.replace(
     "Task Instructions\n\nYou will now hear",
     "Task Instructions\n\nThe task itself is the same as the previous day of training. You will hear"
   );
@@ -377,79 +393,65 @@ function getTrainingInstructions(group, session) {
       ? 'Welcome to day 1 of training!'
       : `Welcome back to day ${day} of training!\n\n` +
         "In this training, you'll be listening to the same speaker as the previous " +
-        "training session, but they will be reading different passages.";
-    return [intro, pd, day === 1 ? taskStandard : taskReturnDay];
+        "training session, but they will be reading a different passage.";
+    return [intro, pd, day === 1 ? taskDist : taskDistReturnDay];
   }
 
   return [];
 }
 
+// One play-through of a story: audio + subtitles, SPACE to advance per
+// sentence (available only after the audio finishes). No typing.
+function buildStoryPlay(rows, storyName, passLabel) {
+  return rows.map((row, i) => ({
+    type:     jsPsychAudioKeyboardResponse,
+    stimulus: audioURL(row[AUDIO_FILE_COL]),
+    choices:  [' '],
+    response_allowed_while_playing: false,
+    trial_ends_after_audio:         false,
+    prompt: `<div class="exp-container">
+      <p class="exp-subtitle">${esc(row[SUBTITLE_COL])}</p>
+      <p class="exp-hint">Press SPACE to move to the next sentence.</p>
+    </div>`,
+    on_start: () => console.log(
+      `[training | ${storyName} | ${passLabel}] sentence ${i + 1}/${rows.length}  ${row[AUDIO_FILE_COL]}`
+    )
+  }));
+}
+
+// A story is played through twice, back-to-back, with subtitles both times.
 function buildTrainingStory(storyRows, storyName) {
   const rows     = storyRows.filter(r => r[STORY_ID_COL] === storyName);
   const timeline = [];
 
   console.log(
-    `[training | ${storyName}] ${rows.length} sentences: ` +
+    `[training | ${storyName}] ${rows.length} sentences (played twice): ` +
     rows.map(r => r[AUDIO_FILE_COL]).join(', ')
   );
 
   timeline.push(msgTrial('Listen carefully and read along with the subtitles.'));
-
-  // Pass 1: audio + subtitle; space only available after audio ends
-  for (let i = 0; i < rows.length; i++) {
-    const row = rows[i];
-    timeline.push({
-      type:     jsPsychAudioKeyboardResponse,
-      stimulus: audioURL(row[AUDIO_FILE_COL]),
-      choices:  [' '],
-      response_allowed_while_playing: false,
-      trial_ends_after_audio:         false,
-      prompt: `<div class="exp-container">
-        <p class="exp-subtitle">${esc(row[SUBTITLE_COL])}</p>
-        <p class="exp-hint">Press SPACE to move to the next sentence.</p>
-      </div>`,
-      on_start: () => console.log(
-        `[training | ${storyName} | pass1] sentence ${i + 1}/${rows.length}  ${row[AUDIO_FILE_COL]}`
-      )
-    });
-  }
+  timeline.push(...buildStoryPlay(rows, storyName, 'play1'));
 
   timeline.push(msgTrial(
-    'Now you will hear the same passage again, but this time without subtitles.\n\n' +
-    'After each sentence, type what you heard and press ENTER.'
+    'Now you will hear the same passage again.\n\n' +
+    'Keep listening carefully and read along with the subtitles.'
   ));
-
-  // Pass 2: audio + fixation, then typed response (not saved)
-  for (let i = 0; i < rows.length; i++) {
-    const row = rows[i];
-    timeline.push({
-      type:     jsPsychAudioKeyboardResponse,
-      stimulus: audioURL(row[AUDIO_FILE_COL]),
-      choices:  'NO_KEYS',
-      trial_ends_after_audio:         true,
-      response_allowed_while_playing: false,
-      prompt:   '<div class="exp-container"><p class="exp-prompt" aria-hidden="true" style="visibility:hidden">Please type what you heard below.</p><div class="fixation">+</div><p class="exp-hint" aria-hidden="true" style="visibility:hidden">Press ENTER to submit</p></div>',
-      on_start: () => console.log(
-        `[training | ${storyName} | pass2] sentence ${i + 1}/${rows.length}  ${row[AUDIO_FILE_COL]}`
-      )
-    });
-    timeline.push({ type: TextInputPlugin, prompt: 'Please type what you heard below.' });
-  }
+  timeline.push(...buildStoryPlay(rows, storyName, 'play2'));
 
   return timeline;
 }
 
-function buildTrainingBlock(storyRows, group, session, repeat) {
+function buildTrainingBlock(storyRows, group, session) {
   if (!storyRows.length) return [];
 
   const instructions = getTrainingInstructions(group, session);
   const timeline     = instructions.map(page => msgTrial(page));
   const storyNames   = [...new Set(storyRows.map(r => r[STORY_ID_COL]))].sort();
-  const passes       = repeat ? 2 : 1;
 
-  for (let p = 0; p < passes; p++)
-    for (const name of storyNames)
-      timeline.push(...buildTrainingStory(storyRows, name));
+  // Each story is played twice back-to-back (handled in buildTrainingStory),
+  // so for mass this yields story2,story2,story3,story3,story4,story4,story7,story7.
+  for (const name of storyNames)
+    timeline.push(...buildTrainingStory(storyRows, name));
 
   return timeline;
 }
@@ -551,7 +553,7 @@ function buildDemographics(participantId) {
 function buildTimeline(participantId, group, session, testBlocks, storyRows) {
   const timeline      = [];
   const firstSessions = ['pre-post', 'pre-train-post', 'pre-test'];
-  const { rows: trainingRows, repeat } = selectTrainingStories(storyRows, group, session);
+  const trainingRows  = selectTrainingStories(storyRows, group, session);
 
   if (firstSessions.includes(session))
     timeline.push(...buildDemographics(participantId));
@@ -568,7 +570,7 @@ function buildTimeline(participantId, group, session, testBlocks, storyRows) {
   } else if (session === 'pre-train-post') {
     // lmtd / mass: pre-test → training → post-test
     timeline.push(...buildTestBlock(participantId, session, 'pre-test',  testBlocks['pre-test']));
-    timeline.push(...buildTrainingBlock(trainingRows, group, session, repeat));
+    timeline.push(...buildTrainingBlock(trainingRows, group, session));
     timeline.push(...buildTestBlock(participantId, session, 'post-test', testBlocks['post-test']));
 
   } else if (session === 'pre-test') {
@@ -577,11 +579,11 @@ function buildTimeline(participantId, group, session, testBlocks, storyRows) {
 
   } else if (['train-day1', 'train-day2', 'train-day3'].includes(session)) {
     // dist days 1-3: training only
-    timeline.push(...buildTrainingBlock(trainingRows, group, session, false));
+    timeline.push(...buildTrainingBlock(trainingRows, group, session));
 
   } else if (session === 'train-day4-post') {
     // dist day 4: training → post-test
-    timeline.push(...buildTrainingBlock(trainingRows, group, session, false));
+    timeline.push(...buildTrainingBlock(trainingRows, group, session));
     timeline.push(...buildTestBlock(participantId, session, 'post-test', testBlocks['post-test']));
 
   } else if (['1-week post', '1-month post'].includes(session)) {
@@ -712,7 +714,7 @@ function showSetupScreen(onComplete) {
 // Console summary — called once after stimuli load
 // ----------------------------------------------------------------
 function logSessionSummary(participantId, group, session, speaker, testBlocks, storyRows) {
-  const { rows: trainingRows } = selectTrainingStories(storyRows, group, session);
+  const trainingRows = selectTrainingStories(storyRows, group, session);
 
   console.group(
     `%c[Session] ${participantId} | group: ${group} | session: ${session}`,
@@ -769,7 +771,7 @@ function getSessionAudioFilenames(testBlocks, storyRows, group, session) {
     (testBlocks[key] ?? []).forEach(r => files.add(r[AUDIO_FILE_COL]));
 
   // Training files used in this session
-  const { rows: trainingRows } = selectTrainingStories(storyRows, group, session);
+  const trainingRows = selectTrainingStories(storyRows, group, session);
   trainingRows.forEach(r => files.add(r[AUDIO_FILE_COL]));
 
   return [...files];
