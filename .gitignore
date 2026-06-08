@@ -24,3 +24,6 @@ run.sh
 
 # no audio files
 audio/
+
+# claude
+.claude
