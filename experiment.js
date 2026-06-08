@@ -7,7 +7,7 @@
 // ----------------------------------------------------------------
 // Constants (mirror the Python script)
 // ----------------------------------------------------------------
-const appversion         = '2026.05.18'
+const appversion         = '2026.06.07'
 console.log('App version: ', appversion);
 
 const SENTENCES_PER_TEST = 40;
