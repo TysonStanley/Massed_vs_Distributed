@@ -186,11 +186,20 @@ class TextInputPlugin {
                autocorrect="off" autocapitalize="none" class="exp-input">
         <p class="exp-hint">Press ENTER to submit</p>
       </div>`;
-    const inp = display.querySelector('#resp');
+    const inp  = display.querySelector('#resp');
+    const hint = display.querySelector('.exp-hint');
     inp.focus();
     inp.addEventListener('keydown', e => {
       if (e.key === 'Enter') {
         const response = inp.value;
+        if (response.trim() === '') {
+          // Block submission of an empty response.
+          if (hint) {
+            hint.textContent = 'Please type a response before pressing ENTER.';
+            hint.classList.add('exp-hint-error');
+          }
+          return;
+        }
         display.innerHTML = '';
         this.jsPsych.finishTrial({ response });
       }
