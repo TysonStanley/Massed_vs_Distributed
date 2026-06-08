@@ -11,7 +11,7 @@ const appversion         = '2026.05.18'
 console.log('App version: ', appversion);
 
 const SENTENCES_PER_TEST = 40;
-const STIMULI_CSV        = 'stimuli_speakers.csv';
+const STIMULI_CSV        = 'stimuli_speakers_v2.csv';
 const STORY_ID_COL       = 'story_name';
 const SUBTITLE_COL       = 'subtitles';
 const AUDIO_FILE_COL     = 'filename';
@@ -804,7 +804,7 @@ showSetupScreen(async (participantId, group, session, dirHandle) => {
     document.body.innerHTML =
       `<div style="background:#000;color:#f77;padding:40px;font-family:monospace;">
          <p>Error loading ${STIMULI_CSV}: ${esc(err.message)}</p>
-         <p style="color:#888;margin-top:16px;">Make sure stimuli_speakers.csv is in the same folder as index.html.</p>
+         <p style="color:#888;margin-top:16px;">Make sure ${STIMULI_CSV} is in the same folder as index.html.</p>
        </div>`;
     return;
   }
